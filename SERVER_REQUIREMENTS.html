@@ -1,0 +1,283 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+* { box-sizing: border-box; }
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt;
+       color: #1a1a1a; line-height: 1.45; }
+h1 { font-size: 22pt; color: #0b3d91; border-bottom: 3px solid #0b3d91;
+     padding-bottom: 6px; margin: 0 0 10px; }
+h2 { font-size: 15pt; color: #0b3d91; margin-top: 22px;
+     border-bottom: 1px solid #ccc; padding-bottom: 3px; }
+h3 { font-size: 12.5pt; color: #333; margin-top: 16px; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10pt; }
+th, td { border: 1px solid #bbb; padding: 5px 8px; text-align: left;
+         vertical-align: top; }
+th { background: #0b3d91; color: #fff; }
+tr:nth-child(even) td { background: #f2f5fb; }
+code { background: #eef1f5; padding: 1px 4px; border-radius: 3px;
+       font-family: Consolas, monospace; font-size: 9.5pt; }
+pre { background: #f5f7fa; border: 1px solid #ddd; border-radius: 4px;
+      padding: 10px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #5794f2; background: #f4f8ff;
+             margin: 10px 0; padding: 6px 12px; color: #333; }
+a { color: #0b3d91; text-decoration: none; }
+ul { margin: 6px 0; }
+hr { border: none; border-top: 1px solid #ddd; margin: 18px 0; }
+</style></head><body><h1 id="dbdome-server-requirements">DBDOME — Server Requirements</h1>
+<p>Requirements to install and run the <strong>DBDOME</strong> database‑monitoring platform on a
+single Windows server. Derived from the installer (<code>setup.py</code>), the service
+definitions, and the runtime configuration.</p>
+<blockquote>
+<p>Legend: <strong>Required</strong> = must be present/true to run. <strong>Recommended</strong> = sizing
+guidance not enforced by the software (tune to your monitored‑database count).</p>
+</blockquote>
+<hr />
+<h2 id="1-overview">1. Overview</h2>
+<p>DBDOME installs to <code>C:\ProgramData\DBDOME</code> and runs three logical components as
+Windows services on one host:</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Process / service</th>
+<th>Port</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web / API (FastAPI + Uvicorn)</td>
+<td><code>dbdome_service.exe</code> → <code>DBDOME_web</code> (or combined <code>DBDOME_dbanalytics</code>)</td>
+<td><strong>8080</strong></td>
+</tr>
+<tr>
+<td>Scheduler (metric collection)</td>
+<td><code>dbdome_service.exe</code> → <code>DBDOME_scheduler</code></td>
+<td>—</td>
+</tr>
+<tr>
+<td>Grafana dashboards</td>
+<td><code>dbdomeg-server.exe</code> → <code>DBDOME_Grafana</code> (NSSM‑wrapped)</td>
+<td><strong>3000</strong></td>
+</tr>
+<tr>
+<td>PostgreSQL (analytics store)</td>
+<td><code>postgresql-x64-18</code></td>
+<td><strong>5432</strong></td>
+</tr>
+</tbody>
+</table>
+<p>It connects <strong>out</strong> to the customer's database servers (SQL Server, Oracle, etc.)
+to collect monitoring metrics.</p>
+<hr />
+<h2 id="2-hardware">2. Hardware</h2>
+<table>
+<thead>
+<tr>
+<th>Resource</th>
+<th>Requirement</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>CPU</td>
+<td><strong>4 cores</strong></td>
+<td>Scheduler runs many concurrent metric queries.</td>
+</tr>
+<tr>
+<td>RAM</td>
+<td><strong>16 GB</strong></td>
+<td>PostgreSQL <code>shared_buffers=512MB</code> + up to <code>max_connections=1000</code>; the embedding model (all‑MiniLM‑L6‑v2) and Grafana add overhead.</td>
+</tr>
+<tr>
+<td>Disk</td>
+<td><strong>250 GB</strong></td>
+<td>Install ~ a few GB; PostgreSQL data + logs grow with history/retention; allow room for backups. SSD/NVMe recommended for PostgreSQL write throughput.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Scale RAM/CPU with the number of monitored databases and metric frequency
+(M1/M5/M15 collection intervals) if you exceed a typical deployment.</p>
+</blockquote>
+<hr />
+<h2 id="3-operating-system">3. Operating system</h2>
+<ul>
+<li><strong>Required:</strong> Windows Server (x64). Validated on <strong>Windows Server 2022 / 2025</strong>.</li>
+<li><strong>Required:</strong> Installer and updater must run <strong>as Administrator</strong> (<code>setup.py</code>
+  aborts otherwise — it installs services, writes firewall rules, configures PostgreSQL).</li>
+<li><strong>Recommended:</strong> Latest Windows updates; stable hostname; static IP / reserved DHCP.</li>
+</ul>
+<hr />
+<h2 id="4-software-prerequisites">4. Software prerequisites</h2>
+<h3 id="bundled-by-the-installer-no-manual-install">Bundled by the installer (no manual install)</h3>
+<p>These ship in the install package and are installed/configured by <code>setup.py</code>:</p>
+<ul>
+<li><strong>PostgreSQL 18.3</strong> (<code>postgresql-18.3-3-windows-x64.exe</code>) → <code>C:\Program Files\PostgreSQL\18</code></li>
+<li><strong>Microsoft ODBC Driver 17/18 for SQL Server</strong> (<code>msodbcsql.msi</code>) — for SQL Server monitoring</li>
+<li><strong>NSSM</strong> (<code>nssm.exe</code>) — wraps <code>dbdomeg-server.exe</code> (Grafana) as a Windows service</li>
+<li><strong>DBDOME binaries</strong> — <code>dbdome_service.exe</code>, <code>dbdome_dbanalytics.exe</code>, <code>dbdomeg-server.exe</code>,
+  <code>grafana.exe</code> (PyInstaller‑frozen; Python runtime is embedded — <strong>no separate Python install required</strong>)</li>
+<li><strong>Embedding model</strong> — <code>all-MiniLM-L6-v2</code> (local; referenced by <code>.env</code> <code>LLM=</code>)</li>
+</ul>
+<h3 id="must-exist-be-reachable">Must exist / be reachable</h3>
+<ul>
+<li><strong>Oracle Instant Client</strong> — only if monitoring Oracle. Path set via <code>.env</code>
+  <code>ORACLE_CLIENT_LIB_DIR</code> (e.g. <code>C:\oracle\instantclient_23_0</code>).</li>
+<li><strong>DVD / mounted media or local source</strong> containing the install bundle
+  (<code>bin/</code>, <code>postgres/install/</code>, <code>data/</code>).</li>
+</ul>
+<hr />
+<h2 id="5-network-ports">5. Network &amp; ports</h2>
+<h3 id="inbound-must-be-open-to-dashboardapi-users">Inbound (must be open to dashboard/API users)</h3>
+<table>
+<thead>
+<tr>
+<th>Port</th>
+<th>Protocol</th>
+<th>Service</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8080</td>
+<td>TCP</td>
+<td>DBDOME Web/API</td>
+<td>Web UI &amp; REST endpoints</td>
+</tr>
+<tr>
+<td>3000</td>
+<td>TCP</td>
+<td>Grafana</td>
+<td>Dashboards</td>
+</tr>
+<tr>
+<td>5432</td>
+<td>TCP</td>
+<td>PostgreSQL</td>
+<td>Analytics DB (open only if remote DB access is needed)</td>
+</tr>
+</tbody>
+</table>
+<p>The installer creates these firewall rules (profiles: <strong>domain, private</strong>):
+<code>DBDOME HTTP Server</code> (8080), <code>DBDOME Grafana</code> (3000), <code>DBDOME PostgreSQL</code> (5432).</p>
+<h3 id="outbound-to-monitored-databases">Outbound (to monitored databases)</h3>
+<p>The server must reach each monitored DB on its listener port, e.g.:
+- <strong>SQL Server</strong> — TCP <strong>1433</strong> (or named‑instance port)
+- <strong>Oracle</strong> — TCP <strong>1521</strong>
+- <strong>PostgreSQL/MySQL/etc.</strong> — their respective ports</p>
+<h3 id="ip-addressing">IP / addressing</h3>
+<ul>
+<li>The server's <strong>local LAN IPv4</strong> is written to <code>.env</code> <code>ORG_IP</code> and used to build
+  dashboard/redirect URLs. Clients must be able to reach the server at that address.</li>
+<li>A static/reserved IP is strongly recommended (URL links break if it changes).</li>
+</ul>
+<hr />
+<h2 id="6-database-postgresql-configuration">6. Database (PostgreSQL) configuration</h2>
+<p>Applied by the installer:</p>
+<ul>
+<li><strong>Instance:</strong> PostgreSQL 18 on port <strong>5432</strong>, service <code>postgresql-x64-18</code>.</li>
+<li><strong>Database:</strong> <code>dbanalytics</code>.</li>
+<li><strong>Roles:</strong> <code>postgres</code>, <code>dbdome_mon_usr</code>, <code>dbdome_adm</code>.</li>
+<li><strong><code>pg_hba.conf</code>:</strong> <code>trust</code> for <code>127.0.0.1/32</code> and <code>::1/128</code> (local‑only).</li>
+<li><strong><code>postgresql.conf</code> tuning:</strong></li>
+<li><code>max_connections = 1000</code></li>
+<li><code>shared_buffers = 512MB</code></li>
+<li><code>logging_collector = off</code></li>
+<li><strong>Restore:</strong> baseline <code>dbanalytics_install.backup</code> restored on first install.</li>
+</ul>
+<blockquote>
+<p><code>max_connections = 1000</code> is high — ensure RAM is sized accordingly, or front it
+with a pooler for very large deployments.</p>
+</blockquote>
+<hr />
+<h2 id="7-disk-layout">7. Disk layout</h2>
+<table>
+<thead>
+<tr>
+<th>Path</th>
+<th>Contents</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>C:\ProgramData\DBDOME\</code></td>
+<td>Install root (<code>.env</code>, <code>install.log</code>, <code>update.log</code>)</td>
+</tr>
+<tr>
+<td><code>C:\ProgramData\DBDOME\bin\</code></td>
+<td>Service exes, <code>nssm.exe</code>, Grafana, <code>icons\</code>, <code>.env</code> (the one the services read)</td>
+</tr>
+<tr>
+<td><code>C:\ProgramData\DBDOME\conf\</code></td>
+<td>Grafana provisioning / <code>custom.ini</code></td>
+</tr>
+<tr>
+<td><code>C:\ProgramData\DBDOME\data\</code></td>
+<td><code>grafana.db</code> (~20 MB)</td>
+</tr>
+<tr>
+<td><code>C:\Program Files\PostgreSQL\18\</code></td>
+<td>PostgreSQL binaries + <code>data\</code></td>
+</tr>
+</tbody>
+</table>
+<p>Public desktop shortcut <code>DBDOME.lnk</code> → <code>http://localhost:8080</code> (icon
+<code>C:\ProgramData\DBDOME\bin\icons\dbdome.ico</code>).</p>
+<hr />
+<h2 id="8-windows-services">8. Windows services</h2>
+<table>
+<thead>
+<tr>
+<th>Service</th>
+<th>Startup</th>
+<th>Recovery</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DBDOME_web</code> / <code>DBDOME_scheduler</code> (or combined <code>DBDOME_dbanalytics</code>)</td>
+<td>Automatic</td>
+<td>Auto‑restart on failure (3×, 5 s apart)</td>
+</tr>
+<tr>
+<td><code>DBDOME_Grafana</code> (NSSM)</td>
+<td>Automatic</td>
+<td>Auto‑restart on exit</td>
+</tr>
+<tr>
+<td><code>postgresql-x64-18</code></td>
+<td>Automatic</td>
+<td>Windows default</td>
+</tr>
+</tbody>
+</table>
+<p>All services run with privileges sufficient to read <code>C:\ProgramData\DBDOME</code> and
+bind their ports.</p>
+<hr />
+<h2 id="9-security-considerations">9. Security considerations</h2>
+<ul>
+<li>Restrict inbound 8080/3000/5432 to trusted networks (firewall profiles are
+  domain/private by default — review for your environment).</li>
+<li>PostgreSQL uses local <code>trust</code> auth; do <strong>not</strong> expose 5432 publicly without
+  changing auth.</li>
+<li>Monitored‑database credentials are stored in the analytics DB — protect the
+  host and DB access accordingly.</li>
+<li>Change default service/DB passwords before production use.</li>
+</ul>
+<hr />
+<h2 id="10-preinstallation-checklist">10. Pre‑installation checklist</h2>
+<ul>
+<li>[ ] Windows Server x64, fully updated</li>
+<li>[ ] Administrator account to run the installer</li>
+<li>[ ] Static/reserved IPv4; firewall manageable</li>
+<li>[ ] Hardware per §2 (CPU/RAM/SSD)</li>
+<li>[ ] Install media/bundle available (DVD <code>DBDOME_DVD_ROM</code> or local path)</li>
+<li>[ ] Outbound network access to every monitored DB (host:port)</li>
+<li>[ ] Oracle Instant Client present (only if monitoring Oracle)</li>
+<li>[ ] Ports 8080 / 3000 / 5432 free (not used by other software)</li>
+</ul>
+<hr />
+<p><em>Source of truth: <code>C:\dev\dbdome_setup\setup.py</code> (installer) and the DBDOME service/runtime configuration.</em></p></body></html>
