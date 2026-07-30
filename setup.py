@@ -951,7 +951,7 @@ def create_shortcut():
 
         shell = win32com.client.Dispatch("WScript.Shell")
         shortcut = shell.CreateShortcut(shortcut_path)
-        shortcut.TargetPath = f"http://localhost:{HTTP_PORT}"
+        shortcut.TargetPath = f"https://localhost:{HTTP_PORT}"
         if os.path.exists(icon_path):
             shortcut.IconLocation = icon_path
         shortcut.Save()
@@ -1176,7 +1176,7 @@ def main():
     log.info(f"║  Version:     {VERSION.ljust(40)}║")
     log.info(f"║  Install dir: {DEST_DIR.ljust(40)}║")
     log.info(f"║  PostgreSQL:  localhost:{PG_PORT.ljust(34)}║")
-    log.info(f"║  Web UI:      http://localhost:{HTTP_PORT}/dbdome".ljust(57) + "║")
+    log.info(f"║  Web UI:      https://localhost:{HTTP_PORT}/dbdome".ljust(57) + "║")
     log.info(f"║  Grafana:     http://localhost:{GRAFANA_PORT}".ljust(57) + "║")
     log.info(f"║  Local IP:    {get_local_ip().ljust(40)}║")
     log.info(f"║  Duration:    {elapsed} seconds".ljust(57) + "║")

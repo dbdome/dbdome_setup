@@ -1,0 +1,332 @@
+<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+@page { size: A4; margin: 18mm 16mm; }
+* { box-sizing: border-box; }
+body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 11pt;
+       color: #1a1a1a; line-height: 1.45; }
+h1 { font-size: 22pt; color: #0b3d91; border-bottom: 3px solid #0b3d91;
+     padding-bottom: 6px; margin: 0 0 10px; }
+h2 { font-size: 15pt; color: #0b3d91; margin-top: 22px;
+     border-bottom: 1px solid #ccc; padding-bottom: 3px; }
+h3 { font-size: 12.5pt; color: #333; margin-top: 16px; }
+table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 10pt; }
+th, td { border: 1px solid #bbb; padding: 5px 8px; text-align: left;
+         vertical-align: top; }
+th { background: #0b3d91; color: #fff; }
+tr:nth-child(even) td { background: #f2f5fb; }
+code { background: #eef1f5; padding: 1px 4px; border-radius: 3px;
+       font-family: Consolas, monospace; font-size: 9.5pt; }
+pre { background: #f5f7fa; border: 1px solid #ddd; border-radius: 4px;
+      padding: 10px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
+blockquote { border-left: 4px solid #5794f2; background: #f4f8ff;
+             margin: 10px 0; padding: 6px 12px; color: #333; }
+a { color: #0b3d91; text-decoration: none; }
+ul { margin: 6px 0; }
+hr { border: none; border-top: 1px solid #ddd; margin: 18px 0; }
+</style></head><body><h1 id="dbdome-step-by-step-installation-configuration-guide">DBDOME — Step-by-Step Installation &amp; Configuration Guide</h1>
+<p><strong>Applies to:</strong> DBDOME installer v2.0.0 (<code>dbdome_setup.exe</code>) on Windows Server 2022 / 2025 (x64)
+<strong>Covers:</strong> mounting the media, installation (console + PowerShell), first login, adding a monitored server, whitelisting an applicative login, mail configuration, and updating.</p>
+<hr />
+<h2 id="1-before-you-start">1. Before You Start</h2>
+<h3 id="11-server-requirements">1.1 Server requirements</h3>
+<table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Requirement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>OS</td>
+<td>Windows Server 2022 or 2025, x64</td>
+</tr>
+<tr>
+<td>CPU / RAM / Disk</td>
+<td>4 cores / 16 GB / 250 GB (SSD or NVMe recommended)</td>
+</tr>
+<tr>
+<td>Privileges</td>
+<td>Local <strong>Administrator</strong> (the installer refuses to run otherwise)</td>
+</tr>
+<tr>
+<td>Free TCP ports</td>
+<td><strong>8080</strong> (DBDOME Web UI), <strong>3000</strong> (Grafana), <strong>5432</strong> (PostgreSQL)</td>
+</tr>
+<tr>
+<td>Network</td>
+<td>Outbound reachability to every monitored database on its listener port (SQL Server 1433, Oracle 1521, PostgreSQL 5432, MySQL/MariaDB 3306, ClickHouse 8123)</td>
+</tr>
+<tr>
+<td>Static IP</td>
+<td>Strongly recommended — the installer records the machine's LAN IP as <code>ORG_IP</code> and uses it in dashboard links</td>
+</tr>
+</tbody>
+</table>
+<p>Nothing else needs pre-installing: Python is embedded in the installer, PostgreSQL 18 and the Microsoft ODBC Driver for SQL Server are bundled and installed automatically.
+<strong>Oracle monitoring only:</strong> install Oracle Instant Client yourself and point <code>ORACLE_CLIENT_LIB_DIR</code> in <code>C:\ProgramData\DBDOME\bin\.env</code> at it (e.g. <code>C:\oracle\instantclient_23_0</code>).</p>
+<h3 id="12-what-gets-installed">1.2 What gets installed</h3>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Detail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Services</td>
+<td><code>DBDOME_scheduler</code> + <code>DBDOME_web</code> (older builds: one combined <code>DBDOME_dbanalytics</code>), <code>DBDOME_Grafana</code> (NSSM-wrapped), <code>postgresql-x64-18</code> — all Automatic start with crash-restart</td>
+</tr>
+<tr>
+<td>Install root</td>
+<td><code>C:\ProgramData\DBDOME</code> (binaries in <code>bin\</code>, Grafana config in <code>conf\</code>, <code>grafana.db</code> in <code>data\</code>)</td>
+</tr>
+<tr>
+<td>PostgreSQL</td>
+<td><code>C:\Program Files\PostgreSQL\18</code>, port <strong>5432</strong>, database <code>dbanalytics</code></td>
+</tr>
+<tr>
+<td>DB roles</td>
+<td><code>postgres</code>, <code>dbdome_mon_usr</code>, <code>dbdome_adm</code> — initial password <code>Yd2243796Anz!!</code> (<strong>change after install</strong>, see §7.1)</td>
+</tr>
+<tr>
+<td>Firewall</td>
+<td>Inbound rules "DBDOME HTTP Server" (8080), "DBDOME Grafana" (3000), "DBDOME PostgreSQL" (5432) for Domain+Private profiles</td>
+</tr>
+<tr>
+<td>Shortcut</td>
+<td><code>DBDOME.lnk</code> on the Public desktop → the Web UI</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="2-mount-the-installation-media">2. Mount the Installation Media</h2>
+<p>The installer looks for a payload folder named <code>DBDOME</code> (it must contain a <code>bin\</code> subfolder). It searches, in order: next to <code>dbdome_setup.exe</code> → a DVD volume labeled <strong><code>DBDOME_DVD_ROM</code></strong> → <code>&lt;any drive&gt;:\DBDOME</code>.</p>
+<p><strong>Option A — ISO file (PowerShell, run as Administrator):</strong></p>
+<pre><code class="language-powershell">Mount-DiskImage -ImagePath &quot;C:\path\to\DBDOME.iso&quot;
+# note the drive letter it was assigned:
+(Get-DiskImage -ImagePath &quot;C:\path\to\DBDOME.iso&quot; | Get-Volume).DriveLetter
+</code></pre>
+<p><strong>Option B — physical DVD:</strong> insert the disc (volume label <code>DBDOME_DVD_ROM</code>); no mounting needed.</p>
+<p><strong>Option C — copied folder:</strong> place the <code>DBDOME</code> folder in the same directory as <code>dbdome_setup.exe</code>, or at the root of any drive (<code>D:\DBDOME</code>).</p>
+<hr />
+<h2 id="3-install-dbdome">3. Install DBDOME</h2>
+<p>The installer is a <strong>console program</strong> — there is no wizard and there are no questions. It auto-detects everything and runs 16 steps unattended (copy files → ODBC driver → PostgreSQL → database restore → Grafana → <code>.env</code> → firewall → services → validation → shortcut).</p>
+<h3 id="31-run-it-ui-way">3.1 Run it (UI way)</h3>
+<ol>
+<li>Log on as a local Administrator.</li>
+<li>Right-click <code>dbdome_setup.exe</code> → <strong>Run as administrator</strong>.</li>
+<li>Watch the console; installation ends with a summary banner listing the Web UI, Grafana, and PostgreSQL addresses.</li>
+</ol>
+<h3 id="32-run-it-powershell-way">3.2 Run it (PowerShell way)</h3>
+<pre><code class="language-powershell"># elevated PowerShell
+Start-Process -FilePath &quot;D:\dbdome_setup.exe&quot; -Verb RunAs -Wait
+Get-Content C:\ProgramData\DBDOME\install.log -Tail 40
+</code></pre>
+<h3 id="33-verify-the-installation">3.3 Verify the installation</h3>
+<p>The installer runs its own validation (PostgreSQL connectivity, root-cause catalog loaded, services RUNNING, <code>.env</code> present). To re-check manually:</p>
+<pre><code class="language-powershell">Get-Service DBDOME_scheduler, DBDOME_web, DBDOME_Grafana, postgresql-x64-18
+Get-NetTCPConnection -LocalPort 8080,3000,5432 -State Listen | Select LocalPort -Unique
+</code></pre>
+<p>All services should be <strong>Running</strong>. Full log: <code>C:\ProgramData\DBDOME\install.log</code>.</p>
+<hr />
+<h2 id="4-first-login">4. First Login</h2>
+<table>
+<thead>
+<tr>
+<th>Interface</th>
+<th>URL</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DBDOME Web UI</td>
+<td><code>https://&lt;server-ip&gt;:8080/dbdome</code></td>
+<td>HTTPS with a self-signed certificate — the browser will warn once; proceed. To install your own certificate use the <code>/ssl_certificate</code> page, then restart <code>DBDOME_web</code>.</td>
+</tr>
+<tr>
+<td>Grafana dashboards</td>
+<td><code>http://&lt;server-ip&gt;:3000</code></td>
+<td>First login <code>admin</code> / <code>admin</code> (Grafana prompts you to change it). See <code>docs\DBDOME_Grafana_User_Access_Guide.pdf</code> for role setup.</td>
+</tr>
+</tbody>
+</table>
+<p>The configuration pages in the next sections are normally reached through buttons on the Grafana dashboards, but can also be opened directly at the URLs given.</p>
+<hr />
+<h2 id="5-configuration">5. Configuration</h2>
+<h3 id="51-add-a-monitored-server">5.1 Add a Monitored Server</h3>
+<ol>
+<li>Open <strong><code>https://&lt;server-ip&gt;:8080/serverform</code></strong> (or the "Add Server" button on the Grafana <em>7 – Automation and Workflows</em> dashboard).</li>
+<li>Fill in the form:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Action</td>
+<td><strong>Add</strong> (the same form does Update / Delete)</td>
+</tr>
+<tr>
+<td>IP Address</td>
+<td>address of the database host</td>
+</tr>
+<tr>
+<td>Server</td>
+<td>display name for the server</td>
+</tr>
+<tr>
+<td>Port</td>
+<td>listener port (1433 / 1521 / 5432 / 3306 / 8123)</td>
+</tr>
+<tr>
+<td>DB Vendor</td>
+<td><code>mssql</code>, <code>Oracle</code>, <code>postgres</code>, <code>mysql</code>, <code>mariadb</code>, or <code>clickhouse</code></td>
+</tr>
+<tr>
+<td>Service name</td>
+<td>Oracle only — the service name</td>
+</tr>
+<tr>
+<td>Auth Type</td>
+<td><code>sql</code> (username + password appear) or <code>win</code> (Windows/trusted authentication)</td>
+</tr>
+<tr>
+<td>User / Password</td>
+<td>the monitoring account on the target database (stored encrypted)</td>
+</tr>
+</tbody>
+</table>
+<ol start="3">
+<li>Click <strong>Test Connection</strong> — a live probe against the target; fix any error before saving.</li>
+<li>Submit. The server is upserted into <code>metrics.monitored_servers</code> and you are redirected to the <em>7 – Automation and Workflows</em> dashboard.</li>
+<li><strong>Verify collection:</strong> within a few scheduler cycles the server should show data on the monitoring dashboards. If nothing arrives, check the collection log (Grafana <em>Operation Log</em> panels or <code>log.operation_log</code>).</li>
+</ol>
+<blockquote>
+<p>Grant the monitoring account read/DMV permissions on the target database (e.g. <code>VIEW SERVER STATE</code> on SQL Server).</p>
+</blockquote>
+<h3 id="52-add-a-whitelist-approved-applicative-login">5.2 Add a Whitelist (Approved) Applicative Login</h3>
+<p>DBDOME's <strong>App Login Guard</strong> watches program/login combinations: a session on a <em>watched program</em> (e.g. SSMS) whose login is <strong>not whitelisted</strong> raises alert <code>SEC-SQL-ACC-030-RC01</code> (and can kill the session, subject to the blocker switch). Whitelisted logins (<code>white = true</code>) never raise alerts — the suppression is enforced centrally, so <strong>no DBDOME alert of any kind is created for a whitelisted applicative login</strong>.</p>
+<ol>
+<li>Open <strong><code>https://&lt;server-ip&gt;:8080/app_login_guard</code></strong> (or the "Configure App Login Guard" button on the <em>App Login Guard</em> Grafana dashboard).</li>
+<li>Under <strong>Applicative Logins</strong>, enter:
+   - <em>Login</em> — the account name; SQL LIKE patterns allowed (<code>svc_app</code>, <code>%app%</code>)
+   - <em>Server</em> — a specific server name, or blank for <strong>all</strong> servers</li>
+<li>Click <strong>Add</strong>. New entries are whitelisted (<code>white = true</code>) by default.</li>
+<li>Optionally add entries under <strong>Watched Programs</strong> (e.g. <code>%SSMS%</code>, <code>sqlcmd%</code>) — the guard only enforces when both lists are populated and the Security/critical <em>blocker</em> switch is enabled.</li>
+<li>The Enable/Disable toggle on each row activates/deactivates the entry (<code>is_active</code>).</li>
+</ol>
+<p>To turn an approved login into a <strong>watched-only</strong> login (alerts fire when it's used from a watched program), clear its <code>white</code> flag — this currently has no UI toggle:</p>
+<pre><code class="language-powershell">&amp; &quot;C:\Program Files\PostgreSQL\18\bin\psql.exe&quot; -U dbdome_adm -d dbanalytics -c `
+  &quot;UPDATE metrics.app_logins SET white = false WHERE applicative_login = 'svc_app';&quot;
+</code></pre>
+<blockquote>
+<p>Related page: <strong><code>/exclude_logins</code></strong> — logins listed there (e.g. the DBA team's own accounts) are excluded from self-activity collection and alerting entirely.</p>
+</blockquote>
+<h3 id="53-mail-smtp-configuration">5.3 Mail (SMTP) Configuration</h3>
+<ol>
+<li>Open <strong><code>https://&lt;server-ip&gt;:8080/mailconfiguration</code></strong> (or the "Email Configuration" button in Grafana).</li>
+<li>Fill in:</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SMTP Server / Port</td>
+<td>e.g. <code>smtp.office365.com</code> / <code>587</code></td>
+</tr>
+<tr>
+<td>SMTP User / Password</td>
+<td>mailbox credentials (password stored encrypted)</td>
+</tr>
+<tr>
+<td>TLS</td>
+<td>check for STARTTLS (port 587)</td>
+</tr>
+<tr>
+<td>Sender</td>
+<td>the From address</td>
+</tr>
+<tr>
+<td>Group name / Recipients</td>
+<td>a recipient group and its comma-separated address list</td>
+</tr>
+</tbody>
+</table>
+<ol start="3">
+<li>Click <strong>Send test email</strong> — sends "DBDOME SMTP test" using the values currently on the form <em>without saving</em>, and reports success/failure. Fix errors before saving.</li>
+<li>Submit. Settings are stored in <code>config.mail_config</code>, recipients in <code>config.mail_groups</code>; alert and scheduled-report mails use them immediately (no service restart needed).</li>
+</ol>
+<p>Additional recipient groups can be added later at <code>/addrecipients</code>.</p>
+<hr />
+<h2 id="6-updating-dbdome">6. Updating DBDOME</h2>
+<p>Updates ship as media containing a <code>dbdome</code> folder plus <code>dbdome_update.exe</code>.</p>
+<ol>
+<li>Mount the update ISO / insert the disc (or copy the <code>dbdome</code> folder to a drive root).</li>
+<li>Make sure PostgreSQL is running — the updater checks but does not start it:
+   <code>powershell
+   Start-Service postgresql-x64-18</code></li>
+<li>Run the updater elevated:
+   <code>powershell
+   Start-Process -FilePath "E:\dbdome_update.exe" -Verb RunAs -Wait
+   # or point it at the payload explicitly:
+   # dbdome_update.exe --source "E:\dbdome"</code></li>
+<li>The updater automatically: stops the DBDOME services → overlays new binaries into <code>C:\ProgramData\DBDOME\bin</code> (preserving <code>DBDOME_SECRET_KEY</code> and <code>PG_PASSWORD</code> in <code>.env</code>) → reinstalls and restarts the services → swaps <code>grafana.db</code> (your Grafana users are migrated; the old file is kept as <code>grafana.db.bak.&lt;timestamp&gt;</code>) → applies all pending SQL migration scripts (tracked in <code>meta.schema_migrations</code>, so reruns are safe) → re-encrypts secrets.</li>
+<li><strong>Check the end-of-run summary</strong> for any "SQL scripts that did not succeed", and review <code>C:\ProgramData\DBDOME\update.log</code>.</li>
+</ol>
+<hr />
+<h2 id="7-post-install-hardening-troubleshooting">7. Post-Install Hardening &amp; Troubleshooting</h2>
+<h3 id="71-change-the-default-database-password">7.1 Change the default database password</h3>
+<p>All three PostgreSQL roles are installed with the same initial password. Change it and keep <code>PG_PASSWORD</code> in <code>C:\ProgramData\DBDOME\bin\.env</code> in sync (the updater/services accept it in plain text and encrypt it to <code>enc:v1:</code> on the next update run), then restart the DBDOME services.</p>
+<h3 id="72-where-to-look-when-something-is-wrong">7.2 Where to look when something is wrong</h3>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Check</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Installer failed</td>
+<td><code>C:\ProgramData\DBDOME\install.log</code></td>
+</tr>
+<tr>
+<td>Web UI down on 8080</td>
+<td><code>Get-Service DBDOME_web</code>; restart it; Event Viewer → Application</td>
+</tr>
+<tr>
+<td>Dashboards empty</td>
+<td><code>Get-Service DBDOME_scheduler</code>; Grafana <em>Operation Log</em>; <code>log.operation_log</code> table</td>
+</tr>
+<tr>
+<td>Grafana down on 3000</td>
+<td><code>Get-Service DBDOME_Grafana</code>; <code>C:\ProgramData\DBDOME\grafana-svc.log</code></td>
+</tr>
+<tr>
+<td>No alert mails</td>
+<td><code>/mailconfiguration</code> → <strong>Send test email</strong>; verify recipients in <code>config.mail_groups</code></td>
+</tr>
+<tr>
+<td>Update issues</td>
+<td><code>C:\ProgramData\DBDOME\update.log</code> + the failed-SQL summary</td>
+</tr>
+</tbody>
+</table>
+<h3 id="73-service-control-quick-reference-elevated-powershell">7.3 Service control quick reference (elevated PowerShell)</h3>
+<pre><code class="language-powershell">Restart-Service DBDOME_web, DBDOME_scheduler
+Restart-Service DBDOME_Grafana
+Get-Service DBDOME*, postgresql-x64-18 | Format-Table Name, Status, StartType
+</code></pre></body></html>
