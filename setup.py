@@ -668,6 +668,40 @@ def _merge_env(path, updates):
         f.writelines(lines)
 
 
+# ── Self-contained secret encryption ─────────────────────────────
+# Same Fernet/enc:v1: scheme as the updater and the app's
+# utils.secrets_crypto. The key is DBDOME_SECRET_KEY in bin\.env (ships on the
+# media; generated here if absent), so the installed .env never holds the DB
+# password in plaintext.
+_ENC_PREFIX = "enc:v1:"
+
+
+def _sc_key():
+    key = None
+    try:
+        with open(BIN_ENV_FILE, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if line.startswith("DBDOME_SECRET_KEY="):
+                    key = line.split("=", 1)[1].strip()
+                    break
+    except OSError:
+        pass
+    if key:
+        return key.encode()
+    from cryptography.fernet import Fernet
+    key = Fernet.generate_key().decode()
+    _merge_env(BIN_ENV_FILE, {"DBDOME_SECRET_KEY": key})
+    log.info("  generated DBDOME_SECRET_KEY in bin\\.env")
+    return key.encode()
+
+
+def _sc_encrypt(v):
+    if v is None or v == "" or (isinstance(v, str) and v.startswith(_ENC_PREFIX)):
+        return v
+    from cryptography.fernet import Fernet
+    return _ENC_PREFIX + Fernet(_sc_key()).encrypt(str(v).encode("utf-8")).decode("ascii")
+
+
 def create_env_files():
     step(8, "Create configuration files")
 
@@ -676,12 +710,21 @@ def create_env_files():
         log.warning(f"  Could not determine a real machine IP — ORG_IP set to {local_ip}. "
                     "Check the network adapter/default route.")
 
+    # PG_PASSWORD is written encrypted (enc:v1:, key = DBDOME_SECRET_KEY in
+    # bin\.env) — the services decrypt it via utils.secrets_crypto. Falls back
+    # to plaintext only if encryption is impossible, so the install never breaks.
+    try:
+        pg_password_env = _sc_encrypt(DB_PASSWORD)
+    except Exception as e:
+        log.warning(f"  Could not encrypt PG_PASSWORD ({e}); writing plaintext.")
+        pg_password_env = DB_PASSWORD
+
     # Managed keys the installer owns. Other keys in the file are left untouched.
     updates = {
         "PG_HOST":     "localhost",
         "PG_PORT":     PG_PORT,
         "PG_USER":     USER_MON,
-        "PG_PASSWORD": DB_PASSWORD,
+        "PG_PASSWORD": pg_password_env,
         "PG_DB":       DB_NAME,
         "ORG_IP":      local_ip,
         "LLM":         os.path.join(DEST_DIR, "all-MiniLM-L6-v2"),
