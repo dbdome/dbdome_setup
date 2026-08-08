@@ -1,10 +1,12 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 
 a = Analysis(
     ['setup.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    # build stamp from build.ps1 so the installer reports 2.01.<Build_No>
+    datas=([('version_build.json', '.')] if os.path.isfile('version_build.json') else []),
     hiddenimports=[
         'bcrypt', '_cffi_backend', 'jwt',
         'psycopg2', 'wmi', 'win32com', 'win32com.client',

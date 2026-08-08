@@ -39,7 +39,34 @@ from pathlib import Path
 # CONFIGURATION
 # ════════════════════════════════════════════════════════════════
 
-VERSION = "2.0.0"
+# Version: 2.01.<Build_No>, shared with the service. build.ps1 drops
+# version_build.json beside this script (and PyInstaller bundles it), so all
+# three artifacts of one build report the same number. Falls back to build 000
+# when built outside build.ps1 - a visible marker that it was not a real build.
+VERSION_MAJOR = 2
+VERSION_MINOR = 1
+
+
+def _build_no():
+    import json
+    import sys
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (here, getattr(sys, "_MEIPASS", None),
+              os.path.dirname(sys.executable) if getattr(sys, "frozen", False) else None):
+        if not d:
+            continue
+        p = os.path.join(d, "version_build.json")
+        if os.path.isfile(p):
+            try:
+                # utf-8-sig: a PS-written stamp carries a BOM and json.load rejects it
+                with open(p, encoding="utf-8-sig") as f:
+                    return int(json.load(f).get("build_no", 0))
+            except Exception:
+                continue
+    return 0
+
+
+VERSION = "{}.{:02d}.{:03d}".format(VERSION_MAJOR, VERSION_MINOR, _build_no())
 
 # Paths
 DEST_DIR       = r"C:\ProgramData\DBDOME"
