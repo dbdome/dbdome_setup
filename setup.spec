@@ -6,7 +6,11 @@ a = Analysis(
     pathex=[],
     binaries=[],
     # build stamp from build.ps1 so the installer reports 2.01.<Build_No>
-    datas=([('version_build.json', '.')] if os.path.isfile('version_build.json') else []),
+    # + the setup window's branding (logo / icon); each is bundled only if present,
+    #   and setup.py renders the wordmark alone when the logo is missing.
+    datas=(([('version_build.json', '.')] if os.path.isfile('version_build.json') else [])
+           + ([('LOGO.png', '.')] if os.path.isfile('LOGO.png') else [])
+           + ([('dbdome.ico', '.')] if os.path.isfile('dbdome.ico') else [])),
     hiddenimports=[
         'bcrypt', '_cffi_backend', 'jwt',
         'psycopg2', 'wmi', 'win32com', 'win32com.client',
