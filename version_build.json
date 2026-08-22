@@ -1,7 +1,7 @@
 {
-    "notes":  "offline install media: Ollama bundled (OllamaSetup.exe + pre-pulled phi3:mini-128k store), GGUF dropped; setup/update provision the agent automatically",
-    "build_no":  21,
+    "notes":  "triage moved off the alert path (async annotation sweep, 7640); ollama as a machine-wide nssm service with a shared model store; keep_alive 24h + warm-on-start; security-agent verdict in alert mail; 7610 column fix; 7630 resultset functions",
+    "build_no":  22,
     "built_by":  "yoram",
-    "version":  "2.02.021",
-    "built_at":  "2026-08-22T10:36:05"
+    "version":  "2.02.022",
+    "built_at":  "2026-08-22T15:36:52"
 }

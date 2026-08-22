@@ -1011,6 +1011,14 @@ def _provision_ollama(bin_dir, log, run):
     """
     installer = os.path.join(bin_dir, "OllamaSetup.exe")
     store_src = os.path.join(bin_dir, "ollama_models")
+    # Machine-wide store, NOT %USERPROFILE%\.ollama.
+    #
+    # The vendor installer is per-user, so the model landed in the installing
+    # account's profile while the DBDOME services run as LocalSystem. Measured
+    # on the dev box: the agent could still reach the server over loopback, but
+    # whenever that user session was not running Ollama it fell back to the
+    # sidecar and reloaded 2.2GB per alert - 11 timeouts averaging 135s.
+    store_dst = r"C:\ProgramData\DBDOME\ollama\models"
 
     # 1) Install Ollama if it is not already there.
     exe = _ollama_exe()
@@ -1018,8 +1026,6 @@ def _provision_ollama(bin_dir, log, run):
         log.info(f"  Ollama already installed: {exe}")
     elif os.path.isfile(installer):
         log.info("  Installing Ollama from the payload (silent)...")
-        # /VERYSILENT is Inno Setup; the vendor installer accepts it and does a
-        # per-user install without prompting.
         run(f'"{installer}" /VERYSILENT /NORESTART')
         time.sleep(10)
         exe = _ollama_exe()
@@ -1030,34 +1036,94 @@ def _provision_ollama(bin_dir, log, run):
                     "the security agent will have NO model and every alert will be "
                     "left unannotated.")
 
-    # 2) Stage the pre-pulled model store (works with no internet).
+    # 2) Stage the pre-pulled model store where every account can read it.
     if os.path.isdir(store_src):
-        dest = os.path.join(os.path.expanduser("~"), ".ollama", "models")
         try:
-            os.makedirs(dest, exist_ok=True)
-            run(f'robocopy "{store_src}" "{dest}" /E /NFL /NDL /NJH /NJS /NP')
-            log.info(f"  Staged bundled model store -> {dest}")
+            os.makedirs(store_dst, exist_ok=True)
+            run(f'robocopy "{store_src}" "{store_dst}" /E /NFL /NDL /NJH /NJS /NP')
+            run(f'icacls "{store_dst}" /grant "Users:(OI)(CI)R" /T /C /Q')
+            # Machine-wide so a service started by SCM sees it too.
+            run(f'setx /M OLLAMA_MODELS "{store_dst}"')
+            os.environ["OLLAMA_MODELS"] = store_dst
+            log.info(f"  Staged bundled model store -> {store_dst} (OLLAMA_MODELS set machine-wide)")
         except Exception as e:
             log.warning(f"  Could not stage the model store: {e}")
     else:
         log.warning("  No ollama_models\\ in the payload - the agent will have no model.")
 
-    # 3) Start the server if the install did not, then verify the tag resolves.
-    if exe and not _ollama_tag_present(2):
+    # 3) Register Ollama as a WINDOWS SERVICE via nssm, the same mechanism DBDOME
+    #    uses for its own services. A service starts at boot under LocalSystem and
+    #    does not depend on anyone being logged in, which is the actual fix for
+    #    the model not staying resident.
+    nssm = os.path.join(bin_dir, "nssm.exe")
+    if exe and os.path.isfile(nssm):
         try:
-            import subprocess
-            subprocess.Popen([exe, "serve"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            time.sleep(8)
-        except Exception as e:
-            log.warning(f"  Could not start the Ollama server: {e}")
+            existing = run('sc query DBDOME_Ollama')
+            already = getattr(existing, "returncode", 1) == 0
+            if not already:
+                run(f'"{nssm}" install DBDOME_Ollama "{exe}" serve')
+                run(f'"{nssm}" set DBDOME_Ollama DisplayName "DBDOME Ollama (security agent model host)"')
+                run(f'"{nssm}" set DBDOME_Ollama Start SERVICE_AUTO_START')
+                run(f'"{nssm}" set DBDOME_Ollama AppEnvironmentExtra '
+                    f'OLLAMA_MODELS={store_dst} OLLAMA_HOST=127.0.0.1:11434 '
+                    f'OLLAMA_KEEP_ALIVE=24h')
+                log.info("  Registered DBDOME_Ollama service (auto-start, LocalSystem)")
+            else:
+                log.info("  DBDOME_Ollama service already present")
+            # Disable the vendor's tray autostart FIRST.
+            #
+            # OllamaSetup drops Ollama.lnk into the user's Startup folder. That
+            # launches "ollama app", which spawns `ollama serve` under the
+            # logged-in account and binds 11434. The service then cannot bind
+            # and nssm parks it in PAUSED. Observed exactly that on the dev box:
+            # the service was registered and running, but the listener was still
+            # owned by the interactive user - so registering the service alone
+            # achieved nothing. Killing ollama.exe is not enough either; the
+            # tray app simply relaunches it.
+            for _root in (os.environ.get("APPDATA", ""),):
+                if not _root:
+                    continue
+                _lnk = os.path.join(_root, "Microsoft", "Windows", "Start Menu",
+                                    "Programs", "Startup", "Ollama.lnk")
+                if os.path.isfile(_lnk):
+                    try:
+                        os.replace(_lnk, _lnk + ".disabled-by-dbdome")
+                        log.info(f"  Disabled Ollama tray autostart: {_lnk}")
+                    except Exception as e:
+                        log.warning(f"  Could not disable {_lnk}: {e}")
+            # Same shortcut in every other profile on the box.
+            try:
+                for _u in os.listdir(r"C:\Users"):
+                    _lnk = os.path.join(r"C:\Users", _u, "AppData", "Roaming",
+                                        "Microsoft", "Windows", "Start Menu",
+                                        "Programs", "Startup", "Ollama.lnk")
+                    if os.path.isfile(_lnk):
+                        os.replace(_lnk, _lnk + ".disabled-by-dbdome")
+                        log.info(f"  Disabled Ollama tray autostart: {_lnk}")
+            except Exception:
+                pass
 
-    tags = _ollama_tag_present(6)
+            run('taskkill /IM "ollama app.exe" /F')
+            run('taskkill /IM ollama.exe /F')
+            time.sleep(4)
+            run(f'"{nssm}" start DBDOME_Ollama')
+            time.sleep(12)
+        except Exception as e:
+            log.warning(f"  Could not register the Ollama service: {e}")
+    elif exe:
+        log.warning(f"  {nssm} not found - Ollama will not run as a service and the "
+                    "model will only be reachable while a user session runs it.")
+
+    # 4) Verify the tag actually resolves - the same probe the agent's
+    #    auto-detect uses, so this answers the question the agent will ask.
+    tags = _ollama_tag_present(15)
     if tags:
         log.info(f"  Model available to the security agent: {', '.join(tags)}")
     else:
         log.warning("  No phi3 tag is being served. The security agent will fail "
                     "open on every alert (alerts still fire, without a reason). "
-                    "Check that Ollama is running and rerun this step.")
+                    "Check: sc query DBDOME_Ollama, then "
+                    "curl http://127.0.0.1:11434/api/tags")
 
 
 def provision_security_agent(src_dir=None):
