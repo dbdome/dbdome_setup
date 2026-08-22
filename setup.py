@@ -936,6 +936,12 @@ def create_env_files():
         "PG_DB":       DB_NAME,
         "ORG_IP":      local_ip,
         "LLM":         os.path.join(DEST_DIR, "all-MiniLM-L6-v2"),
+        # Security agent: annotates every alert with a `reason` explaining
+        # whether the query looks like a genuine finding or known application
+        # traffic. It CANNOT suppress an alert - SECURITY_AGENT_SUPPRESS stays
+        # unset (false). Backend is auto: Ollama when present, else the bundled
+        # llama.cpp sidecar, so an air-gapped install still works.
+        "SECURITY_AGENT_ENABLED": "true",
     }
 
     # Update both the top-level .env and bin\.env. bin\.env is the one the
@@ -964,6 +970,120 @@ def create_env_files():
         log.warning(f"  Could not update global vars: {e}")
 
     log.info("  Configuration files created.")
+
+
+# ════════════════════════════════════════════════════════════════
+# STEP 8c: SECURITY AGENT MODEL
+# ════════════════════════════════════════════════════════════════
+
+def _ollama_exe():
+    """Path to ollama.exe if it is installed, else None."""
+    for p in (os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe"),
+              r"C:\Program Files\Ollama\ollama.exe"):
+        if p and os.path.isfile(p):
+            return p
+    from shutil import which
+    return which("ollama")
+
+
+def _ollama_tag_present(timeout=4):
+    """Does the local Ollama serve a phi3 tag? Same probe the agent's auto-detect uses."""
+    try:
+        import urllib.request, json as _json
+        with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=timeout) as r:
+            names = [m.get("name", "") for m in (_json.loads(r.read()).get("models") or [])]
+        return [n for n in names if n.startswith("phi3:")]
+    except Exception:
+        return []
+
+
+def _provision_ollama(bin_dir, log, run):
+    """Install Ollama from the payload, stage the model, verify it resolves.
+
+    The GGUF/sidecar path was dropped from the media, so Ollama is now the ONLY
+    runtime the agent has. That makes this step consequential rather than
+    best-effort: if it fails, the agent is inert -- every alert still fires, but
+    unannotated. It must therefore say so loudly instead of failing quietly.
+
+    Ollama's model store is content-addressed, so copying blobs\\ + manifests\\
+    into the profile makes the tag resolvable with no download. blobs alone is
+    not enough: the manifest is what names the tag.
+    """
+    installer = os.path.join(bin_dir, "OllamaSetup.exe")
+    store_src = os.path.join(bin_dir, "ollama_models")
+
+    # 1) Install Ollama if it is not already there.
+    exe = _ollama_exe()
+    if exe:
+        log.info(f"  Ollama already installed: {exe}")
+    elif os.path.isfile(installer):
+        log.info("  Installing Ollama from the payload (silent)...")
+        # /VERYSILENT is Inno Setup; the vendor installer accepts it and does a
+        # per-user install without prompting.
+        run(f'"{installer}" /VERYSILENT /NORESTART')
+        time.sleep(10)
+        exe = _ollama_exe()
+        log.info(f"  Ollama installed: {exe}" if exe
+                 else "  Ollama installer ran but ollama.exe was not found.")
+    else:
+        log.warning(f"  {installer} not in the payload and Ollama is not installed - "
+                    "the security agent will have NO model and every alert will be "
+                    "left unannotated.")
+
+    # 2) Stage the pre-pulled model store (works with no internet).
+    if os.path.isdir(store_src):
+        dest = os.path.join(os.path.expanduser("~"), ".ollama", "models")
+        try:
+            os.makedirs(dest, exist_ok=True)
+            run(f'robocopy "{store_src}" "{dest}" /E /NFL /NDL /NJH /NJS /NP')
+            log.info(f"  Staged bundled model store -> {dest}")
+        except Exception as e:
+            log.warning(f"  Could not stage the model store: {e}")
+    else:
+        log.warning("  No ollama_models\\ in the payload - the agent will have no model.")
+
+    # 3) Start the server if the install did not, then verify the tag resolves.
+    if exe and not _ollama_tag_present(2):
+        try:
+            import subprocess
+            subprocess.Popen([exe, "serve"], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            time.sleep(8)
+        except Exception as e:
+            log.warning(f"  Could not start the Ollama server: {e}")
+
+    tags = _ollama_tag_present(6)
+    if tags:
+        log.info(f"  Model available to the security agent: {', '.join(tags)}")
+    else:
+        log.warning("  No phi3 tag is being served. The security agent will fail "
+                    "open on every alert (alerts still fire, without a reason). "
+                    "Check that Ollama is running and rerun this step.")
+
+
+def provision_security_agent(src_dir=None):
+    """Provision the local model the security agent uses to triage alerts.
+
+    TWO RUNTIMES, AND NEITHER IS ALLOWED TO FAIL THE INSTALL
+      sidecar - bin\\secagent\\dbdome_secagent.exe plus the GGUF under
+                bin\\security_agent\\models\\. Ships in the payload, needs no
+                network, works on an air-gapped server. This is the fallback and
+                it is always present, which is why nothing here is fatal.
+      ollama   - faster (about 21-29s per alert against 60s for the sidecar) and
+                produced cleaner verdicts in testing, but the model lives in a
+                per-user store and `ollama pull` needs internet.
+
+    What this step does is the offline provisioning path for Ollama: the payload
+    carries a pre-pulled copy of the model store in bin\\ollama_models\\, and
+    Ollama's store is content-addressed, so copying blobs\\ + manifests\\ into
+    the profile makes the tag resolvable with no download. Copying only blobs\\
+    leaves the tag unresolvable - the manifest is what names it.
+
+    If Ollama is not installed the copy is still staged, so installing Ollama
+    later needs no download; until then the agent uses the sidecar.
+    """
+    step(17, "Provision security-agent model")
+
+    _provision_ollama(BIN_DIR, log, run)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -1780,6 +1900,14 @@ def main():
         set_rootcause_key_defaults()
     except Exception as e:
         log.warning(f"  set_rootcause_key_defaults error (non-fatal): {e}")
+
+    # Step 8c: security-agent model. Before the services start, so the first
+    # sweep already has a model to reach. Never fatal: the bundled sidecar is
+    # the fallback and an air-gapped install is expected to use it.
+    try:
+        provision_security_agent()
+    except Exception as e:
+        log.warning(f"  provision_security_agent error (non-fatal): {e}")
 
     # Step 9: Firewall
     configure_firewall()

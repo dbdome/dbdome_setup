@@ -1,0 +1,7 @@
+{
+    "notes":  "offline install media: Ollama bundled (OllamaSetup.exe + pre-pulled phi3:mini-128k store), GGUF dropped; setup/update provision the agent automatically",
+    "build_no":  21,
+    "built_by":  "yoram",
+    "version":  "2.02.021",
+    "built_at":  "2026-08-22T10:36:05"
+}
