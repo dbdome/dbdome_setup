@@ -1,7 +1,7 @@
 {
-    "notes":  "triage moved off the alert path (async annotation sweep, 7640); ollama as a machine-wide nssm service with a shared model store; keep_alive 24h + warm-on-start; security-agent verdict in alert mail; 7610 column fix; 7630 resultset functions",
-    "build_no":  22,
+    "notes":  "dbdome console: /dbdome is now a real entry point (menu) instead of a redirect to one dashboard. Adds /dbdome/alerts (deduped alert list + detection resultset, security-agent verdict and alert value drill-downs), /dbdome/config (summary, servers, rules, reports, notifications, system + 24 configuration tools), /dbdome/reports (report catalogue bucketed into Compliance/DAM, GRC, Alerts, Data activity) and /dbdome/settings (Grafana-backed create and invite user)",
+    "build_no":  26,
     "built_by":  "yoram",
-    "version":  "2.02.022",
-    "built_at":  "2026-08-22T15:36:52"
+    "version":  "2.02.026",
+    "built_at":  "2026-08-23T11:48:53"
 }
