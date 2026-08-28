@@ -1129,23 +1129,29 @@ def _provision_ollama(bin_dir, log, run):
 def provision_security_agent(src_dir=None):
     """Provision the local model the security agent uses to triage alerts.
 
-    TWO RUNTIMES, AND NEITHER IS ALLOWED TO FAIL THE INSTALL
-      sidecar - bin\\secagent\\dbdome_secagent.exe plus the GGUF under
-                bin\\security_agent\\models\\. Ships in the payload, needs no
-                network, works on an air-gapped server. This is the fallback and
-                it is always present, which is why nothing here is fatal.
-      ollama   - faster (about 21-29s per alert against 60s for the sidecar) and
-                produced cleaner verdicts in testing, but the model lives in a
-                per-user store and `ollama pull` needs internet.
+    ONE RUNTIME, ONE MODEL: Ollama serving `phi3:mini-128k`.
 
-    What this step does is the offline provisioning path for Ollama: the payload
-    carries a pre-pulled copy of the model store in bin\\ollama_models\\, and
-    Ollama's store is content-addressed, so copying blobs\\ + manifests\\ into
-    the profile makes the tag resolvable with no download. Copying only blobs\\
-    leaves the tag unresolvable - the manifest is what names it.
+    The GGUF/sidecar fallback was removed from the media. It is NOT a runtime any
+    more, and the previous version of this docstring claiming it "is always
+    present, which is why nothing here is fatal" was wrong on both counts -- the
+    payload shipped the GGUF at bin\\security_agent\\*.gguf while
+    security_agent/config.py looked for it under
+    bin\\security_agent\\models\\Phi-3-mini-4k-instruct-q4.gguf, so the wrong
+    directory AND the wrong filename meant the sidecar could never load it. It
+    was dead weight (2.3 GB) that read as a safety net.
+
+    So this step is CONSEQUENTIAL, not best-effort: if it fails there is no
+    second runtime. The agent goes inert -- every alert still fires, but
+    unannotated -- and _provision_ollama says so loudly rather than failing quietly.
+
+    What it does is the offline provisioning path for Ollama: the payload carries
+    a pre-pulled copy of the model store in bin\\ollama_models\\, and Ollama's
+    store is content-addressed, so copying blobs\\ + manifests\\ into the profile
+    makes the tag resolvable with no download. Copying only blobs\\ leaves the tag
+    unresolvable - the manifest is what names it.
 
     If Ollama is not installed the copy is still staged, so installing Ollama
-    later needs no download; until then the agent uses the sidecar.
+    later needs no download. Until then the agent has no model at all.
     """
     step(17, "Provision security-agent model")
 
