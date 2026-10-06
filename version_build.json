@@ -1,7 +1,7 @@
 {
-    "notes":  "dbdome console: /dbdome is now a real entry point (menu) instead of a redirect to one dashboard. Adds /dbdome/alerts (deduped alert list + detection resultset, security-agent verdict and alert value drill-downs), /dbdome/config (summary, servers, rules, reports, notifications, system + 24 configuration tools), /dbdome/reports (report catalogue bucketed into Compliance/DAM, GRC, Alerts, Data activity) and /dbdome/settings (Grafana-backed create and invite user)",
-    "build_no":  26,
+    "notes":  "PG_HOST HA/DR failover (see service 2.02.030): PG_HOST in .env may be a comma-separated primary,alternate list expanded to a libpq multi-host DSN. Installer payload refreshed to the 2.02.030 service build.",
+    "build_no":  30,
     "built_by":  "yoram",
-    "version":  "2.02.026",
-    "built_at":  "2026-08-23T11:48:53"
+    "version":  "2.02.030",
+    "built_at":  "2026-09-29T15:02:01"
 }
